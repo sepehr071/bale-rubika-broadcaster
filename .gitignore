@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/app.db
+data/app.db-journal
+data/uploads/
+.uv-cache/
+*.egg-info/
+dist/
+build/
+*.spec.bak
+.claude/

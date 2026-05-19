@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>راه‌اندازی ربات‌ها</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>راه‌اندازی ربات‌ها</h1>
+      <nav><span class="muted">پیکربندی اولیه</span></nav>
+    </header>
+
+    <div class="card">
+      <p class="muted setup-intro">
+        برای استفاده از این پنل باید توکن ربات بله و/یا روبیکا را وارد کنید.
+        می‌توانید فقط یکی را تنظیم کنید؛ همان پلتفرم فعال می‌شود.
+      </p>
+    </div>
+
+    <div id="setup-root"></div>
+
+    <div class="card setup-footer">
+      <button type="button" id="enterPanel" disabled>ورود به پنل</button>
+      <span class="muted" id="enterHint">پس از ذخیره دست‌کم یک توکن، فعال می‌شود.</span>
+    </div>
+  </div>
+
+  <script src="/static/util.js"></script>
+  <script src="/static/setup.js"></script>
+</body>
+</html>

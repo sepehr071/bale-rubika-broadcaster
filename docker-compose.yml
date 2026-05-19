@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    image: persian-social-bot:local
+    container_name: persian-social-bot
+    restart: unless-stopped
+    ports:
+      # CRITICAL: host loopback only — admin UI has no auth.
+      # Do NOT drop the "127.0.0.1:" prefix — that would expose the panel on every interface.
+      # HOST_PORT defaults to 8000; use `python scripts/docker_up.py` to auto-pick a free
+      # port when 8000 is busy.
+      - "127.0.0.1:${HOST_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data

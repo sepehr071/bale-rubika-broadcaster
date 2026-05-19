@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>پخش پیام — بله و روبیکا</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>پخش پیام به همه گروه‌ها و کانال‌ها</h1>
+      <nav>
+        <a href="/" class="active">ارسال</a>
+        <a href="/history">تاریخچه</a>
+      </nav>
+    </header>
+
+    <div class="card">
+      <div class="badges" id="badges">
+        <span class="badge">در حال بارگذاری…</span>
+      </div>
+
+      <form id="form">
+        <label for="text">متن پیام</label>
+        <textarea id="text" name="text" maxlength="4096" placeholder="متن خود را اینجا بنویسید…"></textarea>
+
+        <label for="image" style="margin-top:14px">تصویر (اختیاری، حداکثر ۱۰ مگابایت)</label>
+        <input id="image" name="image" type="file" accept="image/*" />
+
+        <div class="row">
+          <button type="submit" id="send">ارسال</button>
+          <span class="muted">انتخاب‌شده: <strong id="selectedCount">0</strong></span>
+          <span id="hint" class="muted"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="card" id="chatsCard">
+      <div class="chats-head">
+        <label style="margin:0">مقصدهای شناسایی‌شده</label>
+        <button type="button" class="ghost" id="refreshChats">به‌روزرسانی</button>
+      </div>
+      <div class="chats-groups" id="chatsGroups"></div>
+    </div>
+
+    <div class="card" id="resultCard" style="display:none">
+      <label>گزارش لحظه‌ای</label>
+      <div class="log" id="log"></div>
+      <div id="summary" class="summary" style="display:none"></div>
+    </div>
+  </div>
+
+  <script src="/static/util.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
