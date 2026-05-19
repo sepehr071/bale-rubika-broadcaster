@@ -6,6 +6,26 @@ Set-Location -LiteralPath $PSScriptRoot
 Write-Host "[build] checking uv..." -ForegroundColor Cyan
 $null = Get-Command uv -ErrorAction Stop
 
+Write-Host "[build] checking npm..." -ForegroundColor Cyan
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw "npm not found. Install Node 20+ from https://nodejs.org."
+}
+
+Write-Host "[build] building React UI (frontend/)" -ForegroundColor Cyan
+Push-Location frontend
+try {
+    npm ci
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE)" }
+    npm run build
+    if ($LASTEXITCODE -ne 0) { throw "npm run build failed (exit $LASTEXITCODE)" }
+} finally {
+    Pop-Location
+}
+
+if (-not (Test-Path "app\web_dist\index.html")) {
+    throw "frontend build missing — app\web_dist\index.html not found"
+}
+
 if (-not (Test-Path .venv)) {
     Write-Host "[build] no .venv -> running 'uv sync'" -ForegroundColor Cyan
     uv sync

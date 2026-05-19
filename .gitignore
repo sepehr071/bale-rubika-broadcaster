@@ -11,3 +11,12 @@ dist/
 build/
 *.spec.bak
 .claude/
+
+# frontend (React + Vite)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+app/web_dist/
+
+# playwright
+.playwright-mcp/

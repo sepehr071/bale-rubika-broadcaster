@@ -91,29 +91,36 @@ class RubikaClient:
             raise BotError("rubika", "upload_no_id", f"no file_id host={host} body={body}")
         return file_id
 
-    async def send_image(self, chat_id: str, image_bytes: bytes, filename: str, mime: str, caption: str | None = None) -> dict:
+    async def _send_uploaded(self, file_type: str, chat_id: str, data_bytes: bytes, filename: str, mime: str, caption: str | None) -> dict:
         last_err: BotError | None = None
         file_id: str | None = None
-        for attempt in range(3):
-            req = await self._request_send_file("Image")
+        max_attempts = 5 if file_type == "Video" else 3
+        for attempt in range(max_attempts):
+            req = await self._request_send_file(file_type)
             upload_url = req.get("upload_url")
             file_id_from_req = req.get("file_id")
             if not upload_url:
                 raise BotError("rubika", "no_upload_url", f"requestSendFile missing upload_url: {req}")
-            log.info("rubika upload target (attempt %d): %s", attempt + 1, upload_url)
+            log.info("rubika upload target type=%s (attempt %d/%d): %s", file_type, attempt + 1, max_attempts, upload_url)
             try:
-                file_id = await self._upload(upload_url, image_bytes, filename, mime)
+                file_id = await self._upload(upload_url, data_bytes, filename, mime)
                 if not file_id:
                     file_id = file_id_from_req
                 if file_id:
                     break
             except BotError as e:
                 last_err = e
-                log.warning("rubika upload attempt %d failed: %s", attempt + 1, e)
-                await asyncio.sleep(1.5 * (attempt + 1))
+                log.warning("rubika upload type=%s attempt %d/%d failed: %s", file_type, attempt + 1, max_attempts, e)
+                await asyncio.sleep(2.0 * (attempt + 1))
         if not file_id:
             raise last_err or BotError("rubika", "upload_failed", "exhausted upload retries")
         payload: dict = {"chat_id": chat_id, "file_id": file_id}
         if caption:
             payload["text"] = caption
         return await self._call("sendFile", payload)
+
+    async def send_image(self, chat_id: str, image_bytes: bytes, filename: str, mime: str, caption: str | None = None) -> dict:
+        return await self._send_uploaded("Image", chat_id, image_bytes, filename, mime, caption)
+
+    async def send_video(self, chat_id: str, video_bytes: bytes, filename: str, mime: str, caption: str | None = None) -> dict:
+        return await self._send_uploaded("Video", chat_id, video_bytes, filename, mime, caption)

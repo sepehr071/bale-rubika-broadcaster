@@ -1,7 +1,18 @@
 import asyncio
+import json as _json
 from typing import Any
 
 import httpx
+
+
+ALLOWED_UPDATES = [
+    "message",
+    "edited_message",
+    "channel_post",
+    "edited_channel_post",
+    "my_chat_member",
+    "chat_member",
+]
 
 
 BASE = "https://tapi.bale.ai"
@@ -60,7 +71,10 @@ class BaleClient:
         return await self._call("getMe", params={})
 
     async def get_updates(self, offset: int | None = None, timeout: int = 30) -> list[dict]:
-        params: dict = {"timeout": timeout}
+        params: dict = {
+            "timeout": timeout,
+            "allowed_updates": _json.dumps(ALLOWED_UPDATES),
+        }
         if offset is not None:
             params["offset"] = offset
         return await self._call("getUpdates", params=params) or []
@@ -74,3 +88,10 @@ class BaleClient:
             data["caption"] = caption
         files = {"photo": (filename, image_bytes, mime)}
         return await self._call("sendPhoto", data=data, files=files)
+
+    async def send_video(self, chat_id: str, video_bytes: bytes, filename: str, mime: str, caption: str | None = None) -> dict:
+        data = {"chat_id": chat_id}
+        if caption:
+            data["caption"] = caption
+        files = {"video": (filename, video_bytes, mime)}
+        return await self._call("sendVideo", data=data, files=files)

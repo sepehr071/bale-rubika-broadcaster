@@ -9,6 +9,29 @@ from .clients.rubika import RubikaClient
 log = logging.getLogger(__name__)
 
 
+_BALE_LEFT_STATUSES = {"left", "kicked", "banned"}
+
+
+def _extract_bale_chat(update: dict) -> tuple[dict | None, bool]:
+    """Return (chat, is_leave) where is_leave=True when the bot was removed/kicked."""
+    msg = (
+        update.get("message")
+        or update.get("edited_message")
+        or update.get("channel_post")
+        or update.get("edited_channel_post")
+    )
+    if msg:
+        return msg.get("chat"), False
+
+    member_evt = update.get("my_chat_member") or update.get("chat_member")
+    if member_evt:
+        chat = member_evt.get("chat")
+        new_status = (member_evt.get("new_chat_member") or {}).get("status")
+        return chat, (new_status in _BALE_LEFT_STATUSES)
+
+    return None, False
+
+
 async def bale_loop(client: BaleClient, stop: asyncio.Event) -> None:
     while not stop.is_set():
         try:
@@ -16,10 +39,14 @@ async def bale_loop(client: BaleClient, stop: asyncio.Event) -> None:
             offset = int(offset_raw) if offset_raw else None
             updates = await client.get_updates(offset=offset, timeout=30)
             for u in updates:
-                msg = u.get("message") or u.get("edited_message") or u.get("channel_post") or u.get("edited_channel_post") or {}
-                chat = msg.get("chat") or {}
-                if chat.get("id") is not None:
-                    db.upsert_chat("bale", str(chat["id"]), chat.get("type"), chat.get("title") or chat.get("username"))
+                chat, is_leave = _extract_bale_chat(u)
+                if chat and chat.get("id") is not None and not is_leave:
+                    db.upsert_chat(
+                        "bale",
+                        str(chat["id"]),
+                        chat.get("type"),
+                        chat.get("title") or chat.get("username"),
+                    )
                 db.set_offset("bale", int(u["update_id"]) + 1)
         except BotError as e:
             log.warning("bale poll error: %s", e)

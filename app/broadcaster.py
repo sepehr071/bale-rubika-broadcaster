@@ -8,22 +8,27 @@ from .clients.bale import BaleClient, BotError
 from .clients.rubika import RubikaClient
 
 
+BALE_VIDEO_MAX = 20 * 1024 * 1024
+
+
 async def run_broadcast(
     broadcast_id: int,
     text: str,
     image_path: str | None,
+    media_kind: str,
     bale: BaleClient,
     rubika: RubikaClient,
     targets: list | None = None,
 ) -> AsyncIterator[dict]:
-    image_bytes: bytes | None = None
+    media_bytes: bytes | None = None
     filename = ""
     mime = "application/octet-stream"
     if image_path:
         p = Path(image_path)
-        image_bytes = p.read_bytes()
+        media_bytes = p.read_bytes()
         filename = p.name
-        mime = mimetypes.guess_type(p.name)[0] or "image/jpeg"
+        default_mime = "video/mp4" if media_kind == "video" else "image/jpeg"
+        mime = mimetypes.guess_type(p.name)[0] or default_mime
 
     if targets is None:
         targets = db.broadcast_targets()
@@ -34,20 +39,28 @@ async def run_broadcast(
     sent = 0
     failed = 0
     for chat in targets:
-        image_err: str | None = None
+        media_err: str | None = None
         delivered = False
         try:
-            if image_bytes is not None:
+            if media_bytes is not None:
                 try:
                     if chat.platform == "bale":
-                        await bale.send_photo(chat.chat_id, image_bytes, filename, mime, caption=text or None)
+                        if media_kind == "video":
+                            if len(media_bytes) > BALE_VIDEO_MAX:
+                                raise BotError("bale", 413, f"video {len(media_bytes)//1024//1024}MB exceeds bale cap {BALE_VIDEO_MAX//1024//1024}MB")
+                            await bale.send_video(chat.chat_id, media_bytes, filename, mime, caption=text or None)
+                        else:
+                            await bale.send_photo(chat.chat_id, media_bytes, filename, mime, caption=text or None)
                     elif chat.platform == "rubika":
-                        await rubika.send_image(chat.chat_id, image_bytes, filename, mime, caption=text or None)
+                        if media_kind == "video":
+                            await rubika.send_video(chat.chat_id, media_bytes, filename, mime, caption=text or None)
+                        else:
+                            await rubika.send_image(chat.chat_id, media_bytes, filename, mime, caption=text or None)
                     else:
                         raise BotError(chat.platform, "unknown_platform", chat.platform)
                     delivered = True
                 except BotError as e:
-                    image_err = str(e)
+                    media_err = str(e)
                     if not text:
                         raise
             if not delivered:
@@ -58,7 +71,7 @@ async def run_broadcast(
                 else:
                     raise BotError(chat.platform, "unknown_platform", chat.platform)
                 delivered = True
-            status_note = f"ok (text only, image failed: {image_err})" if image_err else None
+            status_note = f"ok (text only, {media_kind} failed: {media_err})" if media_err else None
             db.record_result(broadcast_id, chat.platform, chat.chat_id, "ok", status_note)
             sent += 1
             yield {
@@ -67,8 +80,9 @@ async def run_broadcast(
                 "chat_id": chat.chat_id,
                 "title": chat.title,
                 "status": "ok",
-                "fallback": bool(image_err),
-                "error": image_err,
+                "fallback": bool(media_err),
+                "media_kind": media_kind,
+                "error": media_err,
             }
         except BotError as e:
             db.record_result(broadcast_id, chat.platform, chat.chat_id, "error", str(e))

@@ -30,7 +30,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ("app/static", "app/static"),
+        ("app/web_dist", "app/web_dist"),
     ],
     hiddenimports=hidden,
     hookspath=[],

@@ -6,8 +6,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from . import db
@@ -24,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("app")
 
 
-STATIC_DIR = Path(__file__).parent / "static"
+WEB_DIST = Path(__file__).parent / "web_dist"
 
 
 @asynccontextmanager
@@ -49,31 +50,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(settings_router)
 
 
 def _no_tokens_json() -> JSONResponse:
     return JSONResponse({"error": "no_tokens"}, status_code=503)
-
-
-@app.get("/")
-async def index():
-    if not any_token_configured():
-        return RedirectResponse("/setup", status_code=302)
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-@app.get("/history")
-async def history_page():
-    if not any_token_configured():
-        return RedirectResponse("/setup", status_code=302)
-    return FileResponse(STATIC_DIR / "history.html")
-
-
-@app.get("/setup")
-async def setup_page():
-    return FileResponse(STATIC_DIR / "setup.html")
 
 
 @app.get("/api/chats")
@@ -97,27 +78,43 @@ async def api_chats():
     }
 
 
+IMAGE_MAX = 10 * 1024 * 1024
+VIDEO_MAX = 50 * 1024 * 1024
+
+
 @app.post("/api/broadcast")
 async def api_broadcast(
     text: str = Form(""),
+    media: UploadFile | None = File(None),
     image: UploadFile | None = File(None),
     targets: list[str] = Form(default=[]),
 ):
     if not any_token_configured():
         return _no_tokens_json()
     text = (text or "").strip()
-    image_path: str | None = None
-    if image and image.filename:
-        content = await image.read()
-        if len(content) > 10 * 1024 * 1024:
-            raise HTTPException(413, "image > 10MB")
-        suffix = Path(image.filename).suffix or ".bin"
+    upload = media if (media and media.filename) else (image if (image and image.filename) else None)
+    media_path: str | None = None
+    media_kind = "image"
+    if upload and upload.filename:
+        content = await upload.read()
+        ctype = (upload.content_type or "").lower()
+        if ctype.startswith("video/"):
+            media_kind = "video"
+            if ctype != "video/mp4":
+                raise HTTPException(415, "only mp4 video supported")
+            if len(content) > VIDEO_MAX:
+                raise HTTPException(413, "video > 50MB")
+        else:
+            media_kind = "image"
+            if len(content) > IMAGE_MAX:
+                raise HTTPException(413, "image > 10MB")
+        suffix = Path(upload.filename).suffix or (".mp4" if media_kind == "video" else ".bin")
         name = f"{uuid.uuid4().hex}{suffix}"
         dest = UPLOADS_DIR / name
         dest.write_bytes(content)
-        image_path = str(dest)
-    if not text and not image_path:
-        raise HTTPException(400, "text or image required")
+        media_path = str(dest)
+    if not text and not media_path:
+        raise HTTPException(400, "text or media required")
 
     if targets:
         selected = db.get_chats_by_keys(targets)
@@ -126,7 +123,7 @@ async def api_broadcast(
     if not selected:
         raise HTTPException(400, "no targets selected")
 
-    broadcast_id = db.create_broadcast(text or None, image_path, len(selected))
+    broadcast_id = db.create_broadcast(text or None, media_path, len(selected), media_kind=media_kind)
     app.state.pending_targets[broadcast_id] = selected
     return {"broadcast_id": broadcast_id, "total": len(selected)}
 
@@ -151,6 +148,7 @@ async def api_broadcast_stream(broadcast_id: int):
             broadcast_id=broadcast_id,
             text=bcast["text"] or "",
             image_path=bcast["image_path"],
+            media_kind=bcast.get("media_kind") or "image",
             bale=bale,  # type: ignore[arg-type]
             rubika=rubika,  # type: ignore[arg-type]
             targets=selected,
@@ -158,6 +156,72 @@ async def api_broadcast_stream(broadcast_id: int):
             yield {"event": evt["event"], "data": json.dumps(evt, ensure_ascii=False)}
 
     return EventSourceResponse(event_gen())
+
+
+class PresetCreate(BaseModel):
+    name: str
+    keys: list[str]
+
+
+class PresetPatch(BaseModel):
+    name: str | None = None
+    keys: list[str] | None = None
+
+
+@app.get("/api/presets")
+async def api_list_presets():
+    if not any_token_configured():
+        return _no_tokens_json()
+    return {"presets": db.list_presets()}
+
+
+@app.post("/api/presets", status_code=201)
+async def api_create_preset(payload: PresetCreate):
+    if not any_token_configured():
+        return _no_tokens_json()
+    try:
+        return db.save_preset(payload.name, payload.keys)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/presets/{name}")
+async def api_update_preset(name: str, payload: PresetPatch):
+    if not any_token_configured():
+        return _no_tokens_json()
+    current = db.get_preset(name)
+    if current is None:
+        raise HTTPException(404, "preset not found")
+    target_name = payload.name if payload.name is not None else current["name"]
+    target_keys = payload.keys if payload.keys is not None else current["keys"]
+    try:
+        if payload.name is not None and payload.name.strip() != current["name"]:
+            db.rename_preset(current["name"], target_name)
+        if payload.keys is not None:
+            return db.save_preset(target_name, target_keys)
+        result = db.get_preset(target_name)
+        if result is None:
+            raise HTTPException(404, "preset not found")
+        return result
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        msg = str(e)
+        status = 409 if "already exists" in msg else 400
+        raise HTTPException(status, msg)
+
+
+@app.delete("/api/presets/{name}", status_code=204)
+async def api_delete_preset(name: str):
+    if not any_token_configured():
+        return _no_tokens_json()
+    try:
+        existed = db.delete_preset(name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not existed:
+        raise HTTPException(404, "preset not found")
+    return Response(status_code=204)
 
 
 @app.get("/api/broadcasts")
@@ -175,3 +239,36 @@ async def api_broadcast_detail(broadcast_id: int):
     if not bcast:
         raise HTTPException(404, "broadcast not found")
     return bcast
+
+
+_ASSETS_DIR = WEB_DIST / "assets"
+if _ASSETS_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=_ASSETS_DIR), name="assets")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    fav = WEB_DIST / "favicon.ico"
+    if fav.exists():
+        return FileResponse(fav)
+    return Response(status_code=204)
+
+
+_INDEX_FALLBACK = (
+    "<!doctype html><meta charset='utf-8'>"
+    "<title>پخش پیام</title>"
+    "<p style='font-family:sans-serif;padding:2rem;direction:rtl'>"
+    "نسخه ساخته‌شدهٔ رابط کاربری یافت نشد. در پوشهٔ <code>frontend</code> "
+    "دستور <code>npm run build</code> را اجرا کنید."
+    "</p>"
+)
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    if full_path.startswith("api/") or full_path.startswith("assets/"):
+        raise HTTPException(404)
+    index = WEB_DIST / "index.html"
+    if not index.exists():
+        return Response(_INDEX_FALLBACK, media_type="text/html", status_code=503)
+    return FileResponse(index)
